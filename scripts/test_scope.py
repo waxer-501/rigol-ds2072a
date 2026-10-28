@@ -4,6 +4,7 @@ import csv
 import json
 from pathlib import Path
 import tempfile
+import struct
 import unittest
 
 import scope
@@ -47,6 +48,23 @@ class Instrument:
 
 
 class Tests(unittest.TestCase):
+    def bitmap(self, declared):
+        data = bytearray(1152054)
+        data[:2] = b'BM'
+        struct.pack_into('<I', data, 2, declared)
+        struct.pack_into('<IIiiHHI', data, 10, 54, 40, 800, 480, 1, 24, 0)
+        return data
+
+    def test_bitmap_standard_and_firmware_size_field(self):
+        for size in (1152054, 1152000):
+            info = scope.bmp_info(self.bitmap(size))
+            self.assertEqual(info['pixel_only_size_field'], size == 1152000)
+
+    def test_bitmap_bad_length_rejected(self):
+        for data in (self.bitmap(1152054)[:-1], self.bitmap(42)):
+            with self.assertRaises(ValueError):
+                scope.bmp_info(data)
+
     def test_binary_embedded_lf_and_trailers(self):
         for trailer in (b'', b'\n', b'\r\n'):
             self.assertEqual(scope.block_payload(b'#13\x00\n\xff' + trailer), b'\x00\n\xff')

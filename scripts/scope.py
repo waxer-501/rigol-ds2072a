@@ -8,6 +8,7 @@ import json
 import math
 from pathlib import Path
 import re
+import struct
 import sys
 
 
@@ -22,6 +23,22 @@ def block_payload(raw):
     if len(raw) < end or raw[end:] not in (b"", b"\n", b"\r\n"):
         raise ValueError("Truncated block or unexpected trailing bytes")
     return raw[2 + digits:end]
+
+
+def bmp_info(data):
+    if len(data) < 54 or data[:2] != b'BM':
+        raise ValueError('Invalid BMP payload')
+    declared = struct.unpack_from('<I', data, 2)[0]
+    offset, dib, width, height, planes, depth, compression = struct.unpack_from('<IIiiHHI', data, 10)
+    if (offset, dib, width, height, planes, depth, compression) != (54, 40, 800, 480, 1, 24, 0):
+        raise ValueError('Unexpected DS2000A BMP layout')
+    pixel_bytes = ((width * depth + 31) // 32) * 4 * height
+    # Observed on 00.03.05.SP4: bfSize contains pixel bytes, excluding 54-byte header.
+    # Validate geometry and exact payload length; retain the instrument's original bytes.
+    if len(data) != offset + pixel_bytes or declared not in (len(data), pixel_bytes):
+        raise ValueError('Invalid BMP length')
+    return dict(width=width, height=height, declared_file_size=declared,
+                actual_file_size=len(data), pixel_only_size_field=(declared == pixel_bytes))
 
 
 def preamble(text):
@@ -220,12 +237,11 @@ def main():
                 if output.suffix.lower() != '.bmp' or output.exists():
                     raise ValueError('Choose a new .bmp output path')
                 data = binary(scope, ':DISP:DATA?')
-                if len(data) < 54 or data[:2] != b'BM' or int.from_bytes(data[2:6], 'little') != len(data):
-                    raise ValueError('Invalid BMP payload')
+                bitmap = bmp_info(data)
                 output.parent.mkdir(parents=True, exist_ok=True)
                 with output.open('xb') as handle:
                     handle.write(data)
-                result = dict(idn=idn, file=str(output), bytes=len(data))
+                result = dict(idn=idn, file=str(output), bytes=len(data), bitmap=bitmap)
             else:
                 result = waveform(scope, args, idn)
             print(json.dumps(result, indent=2, ensure_ascii=False))
