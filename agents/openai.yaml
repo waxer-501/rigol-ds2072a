@@ -1,0 +1,3 @@
+interface:
+  display_name: "RIGOL DS2072A 示波器"
+  short_description: "通过 USB 或 LAN 接入 DS2072A，查询状态、截图并导出波形"
